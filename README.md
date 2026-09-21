@@ -1,5 +1,3 @@
-#### README file for analyses associated with Swinea et al.
-
 ## Overview
 This repository contains R scripts and data to assist tribes in reproducing analyses to understand co-stewardship priority areas.
 
@@ -60,7 +58,7 @@ S.H. Swinea. 2026. R code and data for tribal co-stewardship analyses.
 - R Studio version: 2026.08.1
 - Required R packages are documented in `renv.lock`.
 
-# Reproducibility:
+# Reproducibility
 - Open "TribalCoStewardshipStrategy.Rproj" to establish the project root
 - Run "0_Setup" once for R package management
 - Run scripts #1-8 to reproduce analyses
