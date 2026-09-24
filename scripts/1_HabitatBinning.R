@@ -13,6 +13,9 @@ library(sf)
 library(terra)
 library(dplyr)
 library(ggplot2)
+library(nhdplusTools)
+library(archive)
+library(httr2)
 
 here::i_am("scripts/1_HabitatBinning.R")
 
@@ -40,8 +43,124 @@ ggplot() +
 # Source: LANDFIRE Existing Vegetation Type
 # Stable link: https://doi.org/10.5066/P1XVKXRL
 # Link: https://www.landfire.gov/vegetation/nvc
-# Once downloaded and extracted, place the folder inside the project folder
-land <- rast("LF2024_EVT_CONUS/Tif/LF2024_EVT_CONUS.tif")
+# Documentation for LANDFIRE's API services: https://lfps.usgs.gov/LFProductsServiceUserGuide.pdf
+
+# Transform AOI to WGS84
+aoi_4326 <- st_transform(aoi, 4326)
+
+# Extract bounding box
+bb <- st_bbox(aoi_4326)
+
+# LANDFIRE requires W, S, E, N coordinate order
+aoi_coords <- paste(
+  bb["xmin"],
+  bb["ymin"],
+  bb["xmax"],
+  bb["ymax"]
+)
+
+# Define request parameters
+params <- list(
+  Output_Projection = "4269",
+  Layer_List = "LF2024_EVT", # We are downloading the LANDFIRE Existing Vegetation Type (EVT) data from 2024
+  Include_Layer_List_XML_File = "false",
+  Area_of_Interest = aoi_coords,
+  Email = "savannah.swinea@gmail.com"
+)
+
+submit_url <- "https://lfps.usgs.gov/api/job/submit"
+
+# Using an HTML package to help us interface with the website
+response <- request(submit_url) |>
+  req_url_query(!!!params) |>
+  req_perform()
+
+# Inspect the response
+resp_status(response)
+# 200: the request was processed successfully
+
+# This sends a "job" to the website, basically: compile these data for me
+job <- resp_body_json(response, simplifyVector = TRUE)
+
+str(job)
+
+job_id <- job$jobId
+
+# Now we can check the status of the job
+status_url <- "https://lfps.usgs.gov/api/job/status"
+
+# Poll until the output is available
+start_time <- Sys.time()
+timeout <- 3600  # Maximum wait: 1 hour
+
+# Running this will automatically check how the job is going
+# Executing means that the job is in process
+# Succeeded means data are ready
+repeat {
+  
+  status_response <- request(status_url) |>
+    req_url_query(JobId = job_id) |>
+    req_perform()
+  
+  status <- resp_body_json(
+    status_response,
+    simplifyVector = TRUE
+  )
+  
+  message("Job status: ", status$status)
+  
+  # Stop if the output becomes available
+  if (!is.null(status$outputFile)) {
+    download_url <- status$outputFile
+    break
+  }
+  
+  # Stop if the job fails
+  if (status$status %in% c("Failed", "Cancelled", "TimedOut")) {
+    stop("LANDIFRE job did not complete successfully.")
+  }
+  
+  # Stop after the timeout
+  if (as.numeric(difftime(Sys.time(), start_time, units = "secs")) > timeout) {
+    stop("Timed out waiting for the LANDFIRE job.")
+  }
+  
+  Sys.sleep(30)
+}
+
+# Inspect the resulting download URL
+str(download_url)
+
+# Download the data to a .zip file on your computer
+download.file(
+  url = download_url,
+  destfile = here::here("data", "landfire_download.zip"),
+  mode = "wb"
+)
+
+# Create output folder for the unzipped data
+dir.create(here("data", "landfire_download"), showWarnings = FALSE, recursive = TRUE)
+
+# Extract ZIP into folder
+unzip(
+  here("data", "landfire_download.zip"),
+  exdir = here("data", "landfire_download")
+)
+
+# There should only be one downloaded file that's the right format, but this double checks that
+tif_file <- list.files(
+  here("data", "landfire_download"),
+  pattern = "\\.tif$",
+  full.names = TRUE,
+  ignore.case = TRUE
+)
+
+if (length(tif_file) != 1) {
+  stop("Expected exactly one .tif file in the landfire_download folder.")
+}
+
+# Read raster
+land <- rast(tif_file)
 
 # Check that the coordinate reference systems match
 crs(aoi) == crs(land)
@@ -242,9 +361,20 @@ writeRaster(flats_presabs, filename = here("outputs", "Flats.tif"), overwrite = 
 # __________________________________________________________________________________________________________________
 # Source: National Hydrography Dataset, maintained by the EPA and USGS
 # Link: https://www.epa.gov/waterdata/get-nhdplus-national-hydrography-dataset-plus-data#v2datamap
-# Once downloaded and extracted, place the folder inside the project folder
+# Documentation for the package helping us download the data: https://cran.r-project.org/web/packages/nhdplusTools/refman/nhdplusTools.html
 
-nhd_path <- "NHDPlusV21_NationalData_Seamless_Geodatabase_Lower48_07/NHDPlusNationalData/NHDPlusV21_National_Seamless_Flattened_Lower48.gdb"
+# Download the water habitats data
+download_nhdplusv2(
+  outdir = here("data"),
+  url = paste0("https://dmap-data-commons-ow.s3.amazonaws.com/NHDPlusV21/",
+               "Data/NationalData/NHDPlusV21_NationalData_Seamless", "_Geodatabase_Lower48_07.7z"),
+  progress = TRUE
+)
+
+# They are in a compressed format, so we need to extract them
+archive_extract(here("data", "NHDPlusV21_NationalData_Seamless_Geodatabase_Lower48_07.7z"), dir = here("data"))
+
+nhd_path <- here("data", "NHDPlusNationalData", "NHDPlusV21_National_Seamless_Flattened_Lower48.gdb")
 
 nhd_flow <- st_read(nhd_path, layer = "NHDFlowline_Network") # national streams and rivers, line feature class
 nhd_body <- st_read(nhd_path, layer = "NHDWaterbody") # national lakes and reservoirs, polygon feature class
