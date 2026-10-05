@@ -13,14 +13,14 @@ TribalCoStewardshipStrategy
 ## README title
 R code and data for tribal co-stewardship analyses
 
-## Zenodo title
-Add later
+## Zenodo link
+<a href="https://doi.org/10.5281/zenodo.22943678"><img src="https://zenodo.org/badge/1380164362.svg" alt="DOI"></a>
 
 ## Manuscript citation
-Add later
+Will be updated later
 
 ## Software citation
-S.H. Swinea. 2026. R code and data for tribal co-stewardship analyses.
+S.H. Swinea. 2026. R code and data for tribal co-stewardship analyses. https://doi.org/10.5281/zenodo.22943678
 
 # Repository file structure includes:
 - TribalCoStewardshipStrategy.Rproj: R project
